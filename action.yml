@@ -29,7 +29,7 @@ inputs:
     required: false
     default: ${{ github.sha }}
   cli-version:
-    description: "Version (npm dist-tag or semver) of @diffdeck/cli to run via npx."
+    description: "Version (npm dist-tag or semver) of @diffdeckai/cli to run via npx."
     required: false
     default: "latest"
 
@@ -80,12 +80,12 @@ runs:
           ARGS+=( --host "$HOST" )
         fi
 
-        echo "Running: npx @diffdeck/cli@${CLI_VERSION} ${ARGS[*]}"
+        echo "Running: npx @diffdeckai/cli@${CLI_VERSION} ${ARGS[*]}"
 
         OUT_FILE="$(mktemp)"
         # pipefail (set above) makes the CLI's exit code propagate through the pipe;
         # tee keeps the CLI's own output visible in the workflow log.
-        npx --yes "@diffdeck/cli@${CLI_VERSION}" "${ARGS[@]}" | tee "$OUT_FILE"
+        npx --yes "@diffdeckai/cli@${CLI_VERSION}" "${ARGS[@]}" | tee "$OUT_FILE"
 
         # Surface the review URL the CLI printed as an action output (last URL it emitted).
         URL="$(grep -oE 'https?://[^[:space:]]+' "$OUT_FILE" | tail -n1 || true)"

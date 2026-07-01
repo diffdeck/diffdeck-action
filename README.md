@@ -3,7 +3,7 @@
 GitHub Action that uploads **Storybook builds** and **Playwright recordings** to
 [DiffDeck](https://diffdeck.ai) for hosted visual review and screenshot diffs.
 
-It is a **thin wrapper** around the [`@diffdeck/cli`](https://www.npmjs.com/package/@diffdeck/cli)
+It is a **thin wrapper** around the [`@diffdeckai/cli`](https://www.npmjs.com/package/@diffdeckai/cli)
 npm package: it fills branch/commit metadata from the GitHub context, runs the CLI
 via `npx`, and surfaces the resulting DiffDeck URL as an action output. All upload
 logic lives in the CLI — this action implements none of it.
@@ -86,7 +86,7 @@ jobs:
 | `host`        | no       | _(CLI default — `https://diffdeck.ai`)_   | DiffDeck base URL. Set this only for self-hosted / non-default deployments.                              |
 | `branch`      | no       | `github.head_ref \|\| github.ref_name`    | Branch the upload is for. Defaults to the PR source branch on `pull_request`, otherwise the ref name.    |
 | `sha`         | no       | `github.sha`                              | Commit SHA the upload is for.                                                                            |
-| `cli-version` | no       | `latest`                                  | Version (npm dist-tag or semver) of `@diffdeck/cli` to run.                                              |
+| `cli-version` | no       | `latest`                                  | Version (npm dist-tag or semver) of `@diffdeckai/cli` to run.                                              |
 
 ## Outputs
 
@@ -100,10 +100,10 @@ The action runs (roughly):
 
 ```bash
 DIFFDECK_TOKEN=<token> \
-  npx @diffdeck/cli@<cli-version> upload-storybook --dir <dir> --branch <branch> --sha <sha> [--host <host>]
+  npx @diffdeckai/cli@<cli-version> upload-storybook --dir <dir> --branch <branch> --sha <sha> [--host <host>]
 # or, for command: recordings
 DIFFDECK_TOKEN=<token> \
-  npx @diffdeck/cli@<cli-version> upload-recording  --dir <dir> --branch <branch> --sha <sha> [--host <host>]
+  npx @diffdeckai/cli@<cli-version> upload-recording  --dir <dir> --branch <branch> --sha <sha> [--host <host>]
 ```
 
 The token is passed to the CLI via the `DIFFDECK_TOKEN` environment variable (never

@@ -1,0 +1,97 @@
+name: "DiffDeck"
+description: "Upload Storybook builds or Playwright recordings to DiffDeck for hosted visual review and screenshot diffs."
+author: "DiffDeck"
+branding:
+  icon: "eye"
+  color: "purple"
+
+inputs:
+  command:
+    description: "What to upload: 'storybook' (a built Storybook static directory) or 'recordings' (a directory of Playwright recordings)."
+    required: true
+  token:
+    description: "DiffDeck project token. Store it as a repository secret (e.g. DIFFDECK_TOKEN)."
+    required: true
+  dir:
+    description: "Directory to upload. For 'storybook' this is the built Storybook static dir; for 'recordings' it is the recordings output dir."
+    required: false
+    default: "storybook-static"
+  host:
+    description: "DiffDeck base URL. Defaults to the CLI's own default (https://diffdeck.ai)."
+    required: false
+    default: ""
+  branch:
+    description: "Branch the upload is for. Defaults to the GitHub context (PR source branch on pull_request, otherwise the ref name)."
+    required: false
+    default: ${{ github.head_ref || github.ref_name }}
+  sha:
+    description: "Commit SHA the upload is for. Defaults to the GitHub context."
+    required: false
+    default: ${{ github.sha }}
+  cli-version:
+    description: "Version (npm dist-tag or semver) of @diffdeck/cli to run via npx."
+    required: false
+    default: "latest"
+
+outputs:
+  url:
+    description: "URL of the uploaded build / recording set on DiffDeck (as reported by the CLI)."
+    value: ${{ steps.upload.outputs.url }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: upload
+      shell: bash
+      env:
+        # The CLI reads the token from DIFFDECK_TOKEN and sends it as the
+        # `X-UI-Review-Token` header — we never put the token on the command line.
+        DIFFDECK_TOKEN: ${{ inputs.token }}
+        COMMAND: ${{ inputs.command }}
+        DIR: ${{ inputs.dir }}
+        HOST: ${{ inputs.host }}
+        BRANCH: ${{ inputs.branch }}
+        SHA: ${{ inputs.sha }}
+        CLI_VERSION: ${{ inputs.cli-version }}
+      run: |
+        set -euo pipefail
+
+        case "$COMMAND" in
+          storybook)  SUBCMD="upload-storybook" ;;
+          recordings) SUBCMD="upload-recording" ;;
+          *)
+            echo "::error::Unknown command '$COMMAND' (expected 'storybook' or 'recordings')."
+            exit 1
+            ;;
+        esac
+
+        if [ -z "${DIFFDECK_TOKEN:-}" ]; then
+          echo "::error::Missing 'token'. Provide your DiffDeck project token (e.g. token: \${{ secrets.DIFFDECK_TOKEN }})."
+          exit 1
+        fi
+
+        if [ ! -d "$DIR" ]; then
+          echo "::error::Directory '$DIR' not found. For 'storybook', build it first (e.g. npm run build-storybook -- -o $DIR)."
+          exit 1
+        fi
+
+        ARGS=( "$SUBCMD" --dir "$DIR" --branch "$BRANCH" --sha "$SHA" )
+        if [ -n "${HOST:-}" ]; then
+          ARGS+=( --host "$HOST" )
+        fi
+
+        echo "Running: npx @diffdeck/cli@${CLI_VERSION} ${ARGS[*]}"
+
+        OUT_FILE="$(mktemp)"
+        # pipefail (set above) makes the CLI's exit code propagate through the pipe;
+        # tee keeps the CLI's own output visible in the workflow log.
+        npx --yes "@diffdeck/cli@${CLI_VERSION}" "${ARGS[@]}" | tee "$OUT_FILE"
+
+        # Surface the review URL the CLI printed as an action output (last URL it emitted).
+        URL="$(grep -oE 'https?://[^[:space:]]+' "$OUT_FILE" | tail -n1 || true)"
+        if [ -n "$URL" ]; then
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "DiffDeck URL: $URL"
+        else
+          echo "::warning::Could not parse a URL from the CLI output; the 'url' output will be empty."
+        fi

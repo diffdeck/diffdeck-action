@@ -1,5 +1,5 @@
 name: "DiffDeck"
-description: "Upload Storybook builds or Playwright recordings to DiffDeck for hosted visual review and screenshot diffs."
+description: "Render + upload Storybook screenshots and Playwright recordings to DiffDeck for hosted visual review and screenshot diffs."
 author: "DiffDeck"
 branding:
   icon: "eye"
@@ -7,15 +7,34 @@ branding:
 
 inputs:
   command:
-    description: "What to upload: 'storybook' (a built Storybook static directory) or 'recordings' (a directory of Playwright recordings)."
-    required: true
+    description: >
+      What to do: 'auto' (default — detect from the inputs/files present),
+      'screenshot' (render every story in CI + render-check, then upload),
+      'storybook' (upload a built Storybook and let the server render), or
+      'recording' (upload a single Playwright recording video + metadata).
+      In 'auto' mode the action runs every applicable mode: a recording when a
+      'video' is given, and a screenshot pass when the Storybook 'dir' exists.
+    required: false
+    default: "auto"
   token:
     description: "DiffDeck project token. Store it as a repository secret (e.g. DIFFDECK_TOKEN)."
     required: true
   dir:
-    description: "Directory to upload. For 'storybook' this is the built Storybook static dir; for 'recordings' it is the recordings output dir."
+    description: "Built Storybook static directory (for 'screenshot'/'storybook')."
     required: false
     default: "storybook-static"
+  video:
+    description: "A single recorded Playwright video file (for 'recording')."
+    required: false
+    default: ""
+  videos:
+    description: >
+      Multiple recordings for 'recording' mode: a directory (searched recursively for
+      .webm/.mp4/.mov/.mkv — e.g. Playwright's 'test-results') or a glob. Each video is
+      uploaded separately, one per test, with a title derived from its path. For full
+      per-test metadata (status/duration/retries) prefer @diffdeckai/playwright-reporter.
+    required: false
+    default: ""
   host:
     description: "DiffDeck base URL. Defaults to the CLI's own default (https://diffdeck.ai)."
     required: false
@@ -24,10 +43,47 @@ inputs:
     description: "Branch the upload is for. Defaults to the GitHub context (PR source branch on pull_request, otherwise the ref name)."
     required: false
     default: ${{ github.head_ref || github.ref_name }}
-  sha:
+  commit:
     description: "Commit SHA the upload is for. Defaults to the GitHub context."
     required: false
     default: ${{ github.sha }}
+  message:
+    description: "Commit message (Storybook builds). Defaults to the checked-out commit's subject line."
+    required: false
+    default: ""
+  install-browsers:
+    description: "For 'screenshot' mode, run 'playwright install --with-deps chromium' first. Playwright itself must be a project dependency."
+    required: false
+    default: "true"
+  # ── Recording metadata (used by 'recording' mode) ──────────────────────────
+  test:
+    description: "Recording: test title."
+    required: false
+    default: ""
+  file:
+    description: "Recording: test file path."
+    required: false
+    default: ""
+  test-id:
+    description: "Recording: stable test identifier."
+    required: false
+    default: ""
+  status:
+    description: "Recording: test status (e.g. passed, failed, skipped)."
+    required: false
+    default: ""
+  duration:
+    description: "Recording: test duration in milliseconds."
+    required: false
+    default: ""
+  retries:
+    description: "Recording: number of retries."
+    required: false
+    default: ""
+  metadata:
+    description: "Recording: extra metadata as a JSON string."
+    required: false
+    default: ""
   cli-version:
     description: "Version (npm dist-tag or semver) of @diffdeckai/cli to run via npx."
     required: false
@@ -35,13 +91,13 @@ inputs:
 
 outputs:
   url:
-    description: "URL of the uploaded build / recording set on DiffDeck (as reported by the CLI)."
-    value: ${{ steps.upload.outputs.url }}
+    description: "URL of the uploaded build / recording on DiffDeck (the last URL the CLI reported)."
+    value: ${{ steps.run.outputs.url }}
 
 runs:
   using: "composite"
   steps:
-    - id: upload
+    - id: run
       shell: bash
       env:
         # The CLI reads the token from DIFFDECK_TOKEN and sends it as the
@@ -49,46 +105,193 @@ runs:
         DIFFDECK_TOKEN: ${{ inputs.token }}
         COMMAND: ${{ inputs.command }}
         DIR: ${{ inputs.dir }}
+        VIDEO: ${{ inputs.video }}
+        VIDEOS: ${{ inputs.videos }}
         HOST: ${{ inputs.host }}
         BRANCH: ${{ inputs.branch }}
-        SHA: ${{ inputs.sha }}
+        COMMIT: ${{ inputs.commit }}
+        MESSAGE: ${{ inputs.message }}
+        INSTALL_BROWSERS: ${{ inputs.install-browsers }}
+        TEST: ${{ inputs.test }}
+        FILE: ${{ inputs.file }}
+        TEST_ID: ${{ inputs.test-id }}
+        STATUS: ${{ inputs.status }}
+        DURATION: ${{ inputs.duration }}
+        RETRIES: ${{ inputs.retries }}
+        METADATA: ${{ inputs.metadata }}
         CLI_VERSION: ${{ inputs.cli-version }}
       run: |
         set -euo pipefail
-
-        case "$COMMAND" in
-          storybook)  SUBCMD="upload-storybook" ;;
-          recordings) SUBCMD="upload-recording" ;;
-          *)
-            echo "::error::Unknown command '$COMMAND' (expected 'storybook' or 'recordings')."
-            exit 1
-            ;;
-        esac
 
         if [ -z "${DIFFDECK_TOKEN:-}" ]; then
           echo "::error::Missing 'token'. Provide your DiffDeck project token (e.g. token: \${{ secrets.DIFFDECK_TOKEN }})."
           exit 1
         fi
 
-        if [ ! -d "$DIR" ]; then
-          echo "::error::Directory '$DIR' not found. For 'storybook', build it first (e.g. npm run build-storybook -- -o $DIR)."
-          exit 1
-        fi
+        CLI="@diffdeckai/cli@${CLI_VERSION}"
 
-        ARGS=( "$SUBCMD" --dir "$DIR" --branch "$BRANCH" --sha "$SHA" )
+        # Common host flag, applied to every invocation.
+        COMMON=()
         if [ -n "${HOST:-}" ]; then
-          ARGS+=( --host "$HOST" )
+          COMMON+=( --host "$HOST" )
         fi
 
-        echo "Running: npx @diffdeckai/cli@${CLI_VERSION} ${ARGS[*]}"
+        # Decide which mode(s) to run.
+        MODES=()
+        case "$COMMAND" in
+          screenshot|storybook|recording)
+            MODES=( "$COMMAND" )
+            ;;
+          recordings) # tolerate the plural
+            MODES=( recording )
+            ;;
+          auto)
+            if [ -n "${VIDEO:-}" ] || [ -n "${VIDEOS:-}" ]; then MODES+=( recording ); fi
+            if [ -d "$DIR" ]; then MODES+=( screenshot ); fi
+            if [ ${#MODES[@]} -eq 0 ]; then
+              echo "::error::Nothing to do in 'auto' mode: no 'video'/'videos' given and Storybook dir '$DIR' not found. Set 'command' explicitly, build Storybook first, or pass a recording."
+              exit 1
+            fi
+            ;;
+          *)
+            echo "::error::Unknown command '$COMMAND' (expected 'auto', 'screenshot', 'storybook', or 'recording')."
+            exit 1
+            ;;
+        esac
 
-        OUT_FILE="$(mktemp)"
-        # pipefail (set above) makes the CLI's exit code propagate through the pipe;
-        # tee keeps the CLI's own output visible in the workflow log.
-        npx --yes "@diffdeckai/cli@${CLI_VERSION}" "${ARGS[@]}" | tee "$OUT_FILE"
+        # Commit message for Storybook uploads: fall back to the checked-out commit subject.
+        if [ -z "${MESSAGE:-}" ] && git rev-parse --git-dir >/dev/null 2>&1; then
+          MESSAGE="$(git log -1 --pretty=%s 2>/dev/null || true)"
+        fi
 
-        # Surface the review URL the CLI printed as an action output (last URL it emitted).
-        URL="$(grep -oE 'https?://[^[:space:]]+' "$OUT_FILE" | tail -n1 || true)"
+        URL=""
+        run_cli() { # $@ = CLI args; tees output, captures the last URL printed
+          echo "Running: npx $CLI $*"
+          OUT_FILE="$(mktemp)"
+          # pipefail (set above) makes the CLI's exit code propagate through the pipe;
+          # tee keeps the CLI's own output visible in the workflow log.
+          npx --yes "$CLI" "$@" | tee "$OUT_FILE"
+          local u
+          u="$(grep -oE 'https?://[^[:space:]]+' "$OUT_FILE" | tail -n1 || true)"
+          if [ -n "$u" ]; then URL="$u"; fi
+        }
+
+        for MODE in "${MODES[@]}"; do
+          case "$MODE" in
+            screenshot|storybook)
+              if [ ! -d "$DIR" ]; then
+                echo "::error::Storybook dir '$DIR' not found. Build it first (e.g. npm run build-storybook -- --output-dir $DIR)."
+                exit 1
+              fi
+              if [ "$MODE" = "screenshot" ] && [ "${INSTALL_BROWSERS:-true}" = "true" ]; then
+                echo "Installing Playwright Chromium (screenshot mode)…"
+                npx --yes playwright install --with-deps chromium
+              fi
+              SUBCMD="upload-storybook"
+              [ "$MODE" = "screenshot" ] && SUBCMD="screenshot-storybook"
+              ARGS=( "$SUBCMD" --dir "$DIR" --branch "$BRANCH" --commit "$COMMIT" )
+              [ -n "${MESSAGE:-}" ] && ARGS+=( --message "$MESSAGE" )
+              ARGS+=( "${COMMON[@]}" )
+              run_cli "${ARGS[@]}"
+              ;;
+            recording)
+              # Collect the recordings to upload: an explicit single 'video', plus any
+              # files under 'videos' (a directory searched recursively, or a glob).
+              # Playwright writes one video per test, so this is typically many files.
+              VIDEO_FILES=()
+              if [ -n "${VIDEO:-}" ]; then
+                if [ ! -f "$VIDEO" ]; then
+                  echo "::error::Recording video '$VIDEO' not found."
+                  exit 1
+                fi
+                VIDEO_FILES+=( "$VIDEO" )
+              fi
+              if [ -n "${VIDEOS:-}" ]; then
+                if [ -d "$VIDEOS" ]; then
+                  while IFS= read -r -d '' f; do VIDEO_FILES+=( "$f" ); done \
+                    < <(find "$VIDEOS" -type f \( -iname '*.webm' -o -iname '*.mp4' -o -iname '*.mov' -o -iname '*.mkv' \) -print0 | sort -z)
+                else
+                  # Treat as a glob (nullglob so a non-match expands to nothing).
+                  shopt -s nullglob
+                  for f in $VIDEOS; do [ -f "$f" ] && VIDEO_FILES+=( "$f" ); done
+                  shopt -u nullglob
+                fi
+              fi
+              if [ ${#VIDEO_FILES[@]} -eq 0 ]; then
+                echo "::error::'recording' mode found no videos. Pass 'video' (a file) and/or 'videos' (a dir/glob of .webm/.mp4/.mov/.mkv)."
+                exit 1
+              fi
+
+              SINGLE=0
+              [ ${#VIDEO_FILES[@]} -eq 1 ] && SINGLE=1
+              HAVE_JQ=0; command -v jq >/dev/null 2>&1 && HAVE_JQ=1
+
+              # Read a field from a video's metadata sidecar. The producer (the test
+              # run) writes the metadata next to each video so nothing has to be
+              # derived. Looked up in order: <video>.json, <video-without-ext>.json,
+              # <dir>/recording.json. Keys accept a few aliases.
+              # Usage: meta_get <video> <jq-expr>
+              meta_get() {
+                [ "$HAVE_JQ" = "1" ] || return 1
+                local vf="$1" expr="$2" sc
+                for sc in "$vf.json" "${vf%.*}.json" "$(dirname "$vf")/recording.json"; do
+                  if [ -f "$sc" ]; then
+                    jq -er "$expr" "$sc" 2>/dev/null && return 0
+                  fi
+                done
+                return 1
+              }
+
+              echo "Uploading ${#VIDEO_FILES[@]} recording(s)…"
+              for VF in "${VIDEO_FILES[@]}"; do
+                ARGS=( upload-recording --video "$VF" )
+
+                # Branch/commit: sidecar wins, else the action inputs.
+                M_BRANCH="$(meta_get "$VF" '.branch')" || M_BRANCH=""
+                M_COMMIT="$(meta_get "$VF" '.commit // .commitSha // .sha')" || M_COMMIT=""
+                ARGS+=( --branch "${M_BRANCH:-$BRANCH}" --commit "${M_COMMIT:-$COMMIT}" )
+
+                # Test title: sidecar → explicit 'test' (single) → derived from path.
+                M_TITLE="$(meta_get "$VF" '.test // .title // .name')" || M_TITLE=""
+                if [ -n "$M_TITLE" ]; then
+                  ARGS+=( --test "$M_TITLE" )
+                elif [ -n "${TEST:-}" ] && [ "$SINGLE" = "1" ]; then
+                  ARGS+=( --test "$TEST" )
+                else
+                  TITLE="$(basename "$(dirname "$VF")")"
+                  { [ "$TITLE" = "." ] || [ -z "$TITLE" ]; } && TITLE="$(basename "${VF%.*}")"
+                  ARGS+=( --test "$TITLE" )
+                fi
+
+                # Remaining fields: sidecar first, else action inputs (single only).
+                M_FILE="$(meta_get "$VF" '.file // .testFile')"       || M_FILE=""
+                M_TID="$(meta_get "$VF" '.testId // ."test-id"')"     || M_TID=""
+                M_STATUS="$(meta_get "$VF" '.status')"                || M_STATUS=""
+                M_DUR="$(meta_get "$VF" '.durationMs // .duration')"  || M_DUR=""
+                M_RETRIES="$(meta_get "$VF" '.retries')"              || M_RETRIES=""
+                # metadata may be an object or a string; serialise objects to JSON.
+                M_META="$(meta_get "$VF" 'if (.metadata|type) == "object" then (.metadata|tojson) else .metadata end')" || M_META=""
+
+                [ -z "$M_FILE" ]    && [ -n "${FILE:-}" ]     && [ "$SINGLE" = "1" ] && M_FILE="$FILE"
+                [ -z "$M_TID" ]     && [ -n "${TEST_ID:-}" ]  && [ "$SINGLE" = "1" ] && M_TID="$TEST_ID"
+                [ -z "$M_STATUS" ]  && [ -n "${STATUS:-}" ]   && M_STATUS="$STATUS"
+                [ -z "$M_DUR" ]     && [ -n "${DURATION:-}" ] && M_DUR="$DURATION"
+                [ -z "$M_RETRIES" ] && [ -n "${RETRIES:-}" ]  && M_RETRIES="$RETRIES"
+                [ -z "$M_META" ]    && [ -n "${METADATA:-}" ] && M_META="$METADATA"
+
+                [ -n "$M_FILE" ]    && ARGS+=( --file "$M_FILE" )
+                [ -n "$M_TID" ]     && ARGS+=( --test-id "$M_TID" )
+                [ -n "$M_STATUS" ]  && ARGS+=( --status "$M_STATUS" )
+                [ -n "$M_DUR" ]     && ARGS+=( --duration "$M_DUR" )
+                [ -n "$M_RETRIES" ] && ARGS+=( --retries "$M_RETRIES" )
+                [ -n "$M_META" ]    && ARGS+=( --metadata "$M_META" )
+                ARGS+=( "${COMMON[@]}" )
+                run_cli "${ARGS[@]}"
+              done
+              ;;
+          esac
+        done
+
         if [ -n "$URL" ]; then
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "DiffDeck URL: $URL"

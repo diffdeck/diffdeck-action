@@ -51,6 +51,14 @@ inputs:
     description: "Commit message (Storybook builds). Defaults to the checked-out commit's subject line."
     required: false
     default: ""
+  default-branch:
+    description: >
+      The repository's default branch. Defaults to the GitHub context. Sent with
+      Storybook uploads and persisted server-side, so PR/feature-branch builds resolve
+      their baseline against the right default branch (otherwise every screenshot is
+      marked 'new').
+    required: false
+    default: ${{ github.event.repository.default_branch }}
   install-browsers:
     description: "For 'screenshot' mode, run 'playwright install chromium' first. Playwright itself must be a project dependency."
     required: false
@@ -161,6 +169,7 @@ runs:
         BRANCH: ${{ inputs.branch }}
         COMMIT: ${{ inputs.commit }}
         MESSAGE: ${{ inputs.message }}
+        DEFAULT_BRANCH: ${{ inputs.default-branch }}
         INSTALL_BROWSERS: ${{ inputs.install-browsers }}
         INSTALL_DEPS: ${{ inputs.install-deps }}
         CONCURRENCY: ${{ inputs.concurrency }}
@@ -253,6 +262,7 @@ runs:
               [ "$MODE" = "screenshot" ] && SUBCMD="screenshot-storybook"
               ARGS=( "$SUBCMD" --dir "$DIR" --branch "$BRANCH" --commit "$COMMIT" )
               [ -n "${MESSAGE:-}" ] && ARGS+=( --message "$MESSAGE" )
+              [ -n "${DEFAULT_BRANCH:-}" ] && ARGS+=( --default-branch "$DEFAULT_BRANCH" )
               # Screenshot-only tuning flags (upload-storybook doesn't accept them).
               if [ "$MODE" = "screenshot" ]; then
                 [ -n "${CONCURRENCY:-}" ] && ARGS+=( --concurrency "$CONCURRENCY" )

@@ -80,6 +80,20 @@ inputs:
     description: "Milliseconds to wait after each story renders before screenshotting (CLI default: 500)."
     required: false
     default: ""
+  full:
+    description: >
+      Force a full render, disabling incremental (TurboSnap) scoping. By default
+      'screenshot' mode renders only the stories affected by files changed since
+      the baseline build (when a preview-stats.json is present and git history is
+      available), carrying the rest forward server-side. Requires the workflow to
+      check out with 'fetch-depth: 0' and to build Storybook with
+      '--webpack-stats-json'. Set to 'true' for a periodic full render.
+    required: false
+    default: "false"
+  stats:
+    description: "Path to the webpack stats JSON for incremental scoping (default: <dir>/preview-stats.json)."
+    required: false
+    default: ""
   # ── Recording metadata (used by 'recording' mode) ──────────────────────────
   test:
     description: "Recording: test title."
@@ -153,6 +167,8 @@ runs:
         LOCALE: ${{ inputs.locale }}
         TIMEZONE: ${{ inputs.timezone }}
         SETTLE: ${{ inputs.settle }}
+        FULL: ${{ inputs.full }}
+        STATS: ${{ inputs.stats }}
         TEST: ${{ inputs.test }}
         FILE: ${{ inputs.file }}
         TEST_ID: ${{ inputs.test-id }}
@@ -243,6 +259,8 @@ runs:
                 [ -n "${LOCALE:-}" ]      && ARGS+=( --locale "$LOCALE" )
                 [ -n "${TIMEZONE:-}" ]    && ARGS+=( --timezone "$TIMEZONE" )
                 [ -n "${SETTLE:-}" ]      && ARGS+=( --settle "$SETTLE" )
+                [ "${FULL:-false}" = "true" ] && ARGS+=( --full )
+                [ -n "${STATS:-}" ]       && ARGS+=( --stats "$STATS" )
               fi
               ARGS+=( "${COMMON[@]}" )
               run_cli "${ARGS[@]}"

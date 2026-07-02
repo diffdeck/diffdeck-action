@@ -56,6 +56,26 @@ jobs:
           dir: storybook-static
 ```
 
+### Incremental rendering (TurboSnap)
+
+In `screenshot` mode the action renders only the stories affected by files
+changed since the baseline build, and the server carries the rest forward — so a
+typical PR renders a handful of stories instead of the whole library. It kicks in
+automatically when two things are present:
+
+- **`fetch-depth: 0`** on `actions/checkout` (already in the example above) — so
+  the CLI can `git diff` the baseline commit against `HEAD`.
+- **`--webpack-stats-json`** when building Storybook — so `preview-stats.json`
+  (the module graph) lands in the build dir:
+
+  ```yaml
+        - run: npm run build-storybook -- --output-dir storybook-static --webpack-stats-json
+  ```
+
+It fails open to a full render whenever it can't scope safely (no baseline yet,
+no stats file, a shallow clone, or a global file like a lockfile / `.storybook`
+config changed). Set `full: true` for a periodic full render to bound any drift.
+
 ### Upload a Storybook build (server renders)
 
 ```yaml
@@ -113,6 +133,8 @@ jobs:
 | `locale`           | no       | _(CLI default — `en-US`)_              | Browser locale for rendering.                                                                    |
 | `timezone`         | no       | _(CLI default — `UTC`)_                | Browser timezone for rendering.                                                                  |
 | `settle`           | no       | _(CLI default — `500`)_                | Milliseconds to wait after each story renders before screenshotting.                             |
+| `full`             | no       | `false`                                | Force a full render (disable incremental/TurboSnap scoping).                                     |
+| `stats`            | no       | _(`<dir>/preview-stats.json`)_         | Webpack stats JSON for incremental scoping.                                                      |
 | `test`             | no       | —                                      | Recording: test title.                                                                           |
 | `file`             | no       | —                                      | Recording: test file path.                                                                       |
 | `test-id`          | no       | —                                      | Recording: stable test identifier.                                                              |

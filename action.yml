@@ -124,7 +124,7 @@ runs:
         set -euo pipefail
 
         if [ -z "${DIFFDECK_TOKEN:-}" ]; then
-          echo "::error::Missing 'token'. Provide your DiffDeck project token (e.g. token: \${{ secrets.DIFFDECK_TOKEN }})."
+          echo "::error::Missing 'token'. Provide your DiffDeck project token via the action's 'token' input (e.g. from a secret named DIFFDECK_TOKEN)."
           exit 1
         fi
 

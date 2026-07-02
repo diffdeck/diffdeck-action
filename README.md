@@ -20,9 +20,11 @@ The `command` input selects what to do (default **`auto`**):
 | `storybook`  | `upload-storybook`     | Uploads the built Storybook only; the server renders the screenshots.                            |
 | `recording`  | `upload-recording`     | Uploads a single Playwright recording (video + test metadata).                                   |
 
-> **Screenshot mode needs Playwright** (with browsers) in your project. Add it as a
-> devDependency (`npm i -D playwright`); the action runs `playwright install --with-deps chromium`
-> for you unless you set `install-browsers: false`.
+> **Screenshot mode needs Playwright** in your project — add it as a devDependency
+> (`npm i -D playwright`). The action runs `playwright install chromium` for you (unless
+> `install-browsers: false`) and caches the download between runs. It does **not** run
+> `--with-deps` by default (GitHub-hosted runners already have the system libraries, and
+> the apt install is slow); set `install-deps: true` if your runner needs them.
 
 ## Usage
 
@@ -104,7 +106,13 @@ jobs:
 | `branch`           | no       | `github.head_ref \|\| github.ref_name` | Branch the upload is for.                                                                        |
 | `commit`           | no       | `github.sha`                           | Commit SHA the upload is for.                                                                    |
 | `message`          | no       | _(commit subject line)_                | Commit message for Storybook builds.                                                             |
-| `install-browsers` | no       | `true`                                 | In `screenshot` mode, run `playwright install --with-deps chromium` first.                       |
+| `install-browsers` | no       | `true`                                 | In `screenshot` mode, run `playwright install chromium` first.                                   |
+| `install-deps`     | no       | `false`                                | Also install system libs (`--with-deps`). Slow; usually unneeded on GitHub-hosted runners.       |
+| `cache-browsers`   | no       | `true`                                 | Cache `~/.cache/ms-playwright` between runs (screenshot mode).                                    |
+| `concurrency`      | no       | _(CLI default — ~3× CPU, capped 4–16)_ | Parallel render workers.                                                                         |
+| `locale`           | no       | _(CLI default — `en-US`)_              | Browser locale for rendering.                                                                    |
+| `timezone`         | no       | _(CLI default — `UTC`)_                | Browser timezone for rendering.                                                                  |
+| `settle`           | no       | _(CLI default — `500`)_                | Milliseconds to wait after each story renders before screenshotting.                             |
 | `test`             | no       | —                                      | Recording: test title.                                                                           |
 | `file`             | no       | —                                      | Recording: test file path.                                                                       |
 | `test-id`          | no       | —                                      | Recording: stable test identifier.                                                              |

@@ -52,9 +52,34 @@ inputs:
     required: false
     default: ""
   install-browsers:
-    description: "For 'screenshot' mode, run 'playwright install --with-deps chromium' first. Playwright itself must be a project dependency."
+    description: "For 'screenshot' mode, run 'playwright install chromium' first. Playwright itself must be a project dependency."
     required: false
     default: "true"
+  install-deps:
+    description: "Also install system libraries with '--with-deps' (slow; usually unneeded on GitHub-hosted runners, which already have them)."
+    required: false
+    default: "false"
+  cache-browsers:
+    description: "Cache the Playwright browser download (~/.cache/ms-playwright) between runs (screenshot mode)."
+    required: false
+    default: "true"
+  # ── Screenshot tuning (used by 'screenshot' mode) ──────────────────────────
+  concurrency:
+    description: "Parallel render workers. Defaults to the CLI's own default (~3× CPU, capped 4–16)."
+    required: false
+    default: ""
+  locale:
+    description: "Browser locale for rendering (CLI default: en-US)."
+    required: false
+    default: ""
+  timezone:
+    description: "Browser timezone for rendering (CLI default: UTC)."
+    required: false
+    default: ""
+  settle:
+    description: "Milliseconds to wait after each story renders before screenshotting (CLI default: 500)."
+    required: false
+    default: ""
   # ── Recording metadata (used by 'recording' mode) ──────────────────────────
   test:
     description: "Recording: test title."
@@ -97,6 +122,17 @@ outputs:
 runs:
   using: "composite"
   steps:
+    # Cache the Playwright browser download so screenshot runs don't re-fetch it.
+    # (System libraries via --with-deps are apt-installed and not cached; they're
+    # already present on GitHub-hosted runners, so install-deps defaults to false.)
+    - name: Cache Playwright browsers
+      if: ${{ inputs.command != 'recording' && inputs.command != 'recordings' && inputs.cache-browsers == 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-ms-playwright-${{ hashFiles('**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-ms-playwright-
     - id: run
       shell: bash
       env:
@@ -112,6 +148,11 @@ runs:
         COMMIT: ${{ inputs.commit }}
         MESSAGE: ${{ inputs.message }}
         INSTALL_BROWSERS: ${{ inputs.install-browsers }}
+        INSTALL_DEPS: ${{ inputs.install-deps }}
+        CONCURRENCY: ${{ inputs.concurrency }}
+        LOCALE: ${{ inputs.locale }}
+        TIMEZONE: ${{ inputs.timezone }}
+        SETTLE: ${{ inputs.settle }}
         TEST: ${{ inputs.test }}
         FILE: ${{ inputs.file }}
         TEST_ID: ${{ inputs.test-id }}
@@ -184,13 +225,25 @@ runs:
                 exit 1
               fi
               if [ "$MODE" = "screenshot" ] && [ "${INSTALL_BROWSERS:-true}" = "true" ]; then
-                echo "Installing Playwright Chromium (screenshot mode)…"
-                npx --yes playwright install --with-deps chromium
+                if [ "${INSTALL_DEPS:-false}" = "true" ]; then
+                  echo "Installing Playwright Chromium + system deps (screenshot mode)…"
+                  npx --yes playwright install --with-deps chromium
+                else
+                  echo "Installing Playwright Chromium (screenshot mode)…"
+                  npx --yes playwright install chromium
+                fi
               fi
               SUBCMD="upload-storybook"
               [ "$MODE" = "screenshot" ] && SUBCMD="screenshot-storybook"
               ARGS=( "$SUBCMD" --dir "$DIR" --branch "$BRANCH" --commit "$COMMIT" )
               [ -n "${MESSAGE:-}" ] && ARGS+=( --message "$MESSAGE" )
+              # Screenshot-only tuning flags (upload-storybook doesn't accept them).
+              if [ "$MODE" = "screenshot" ]; then
+                [ -n "${CONCURRENCY:-}" ] && ARGS+=( --concurrency "$CONCURRENCY" )
+                [ -n "${LOCALE:-}" ]      && ARGS+=( --locale "$LOCALE" )
+                [ -n "${TIMEZONE:-}" ]    && ARGS+=( --timezone "$TIMEZONE" )
+                [ -n "${SETTLE:-}" ]      && ARGS+=( --settle "$SETTLE" )
+              fi
               ARGS+=( "${COMMON[@]}" )
               run_cli "${ARGS[@]}"
               ;;

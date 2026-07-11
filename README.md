@@ -126,6 +126,8 @@ config changed). Set `full: true` for a periodic full render to bound any drift.
 | `branch`           | no       | `github.head_ref \|\| github.ref_name` | Branch the upload is for.                                                                        |
 | `commit`           | no       | `github.sha`                           | Commit SHA the upload is for.                                                                    |
 | `message`          | no       | _(commit subject line)_                | Commit message for Storybook builds.                                                             |
+| `default-branch`   | no       | `github.event.repository.default_branch` | Repository default branch. Persisted server-side so PR/feature-branch builds resolve their baseline against it. |
+| `pr-number`        | no       | `github.event.pull_request.number`     | Pull request number the build is for. Persisted server-side so the build deep-links straight to the exact PR (else a branch-filtered PR search). |
 | `install-browsers` | no       | `true`                                 | In `screenshot` mode, run `playwright install chromium` first.                                   |
 | `install-deps`     | no       | `false`                                | Also install system libs (`--with-deps`). Slow; usually unneeded on GitHub-hosted runners.       |
 | `cache-browsers`   | no       | `true`                                 | Cache `~/.cache/ms-playwright` between runs (screenshot mode).                                    |

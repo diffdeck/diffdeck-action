@@ -59,6 +59,14 @@ inputs:
       marked 'new').
     required: false
     default: ${{ github.event.repository.default_branch }}
+  pr-number:
+    description: >
+      The pull request number this build is for. Defaults to the GitHub context (the
+      PR number on pull_request events, empty otherwise). Sent with Storybook uploads
+      and persisted server-side so the build deep-links straight to the exact PR
+      (otherwise DiffDeck falls back to a branch-filtered PR search).
+    required: false
+    default: ${{ github.event.pull_request.number }}
   install-browsers:
     description: "For 'screenshot' mode, run 'playwright install chromium' first. Playwright itself must be a project dependency."
     required: false
@@ -170,6 +178,7 @@ runs:
         COMMIT: ${{ inputs.commit }}
         MESSAGE: ${{ inputs.message }}
         DEFAULT_BRANCH: ${{ inputs.default-branch }}
+        PR_NUMBER: ${{ inputs.pr-number }}
         INSTALL_BROWSERS: ${{ inputs.install-browsers }}
         INSTALL_DEPS: ${{ inputs.install-deps }}
         CONCURRENCY: ${{ inputs.concurrency }}
@@ -263,6 +272,7 @@ runs:
               ARGS=( "$SUBCMD" --dir "$DIR" --branch "$BRANCH" --commit "$COMMIT" )
               [ -n "${MESSAGE:-}" ] && ARGS+=( --message "$MESSAGE" )
               [ -n "${DEFAULT_BRANCH:-}" ] && ARGS+=( --default-branch "$DEFAULT_BRANCH" )
+              [ -n "${PR_NUMBER:-}" ] && ARGS+=( --pr-number "$PR_NUMBER" )
               # Screenshot-only tuning flags (upload-storybook doesn't accept them).
               if [ "$MODE" = "screenshot" ]; then
                 [ -n "${CONCURRENCY:-}" ] && ARGS+=( --concurrency "$CONCURRENCY" )

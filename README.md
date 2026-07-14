@@ -64,7 +64,9 @@ typical PR renders a handful of stories instead of the whole library. It kicks i
 automatically when two things are present:
 
 - **`fetch-depth: 0`** on `actions/checkout` (already in the example above) — so
-  the CLI can `git diff` the baseline commit against `HEAD`.
+  the CLI can `git diff` the baseline commit against `HEAD`. On a shallow clone
+  the CLI now tries to fetch just the baseline commit on demand, so incremental
+  often works even without this; `fetch-depth: 0` is the reliable guarantee.
 - **`--webpack-stats-json`** when building Storybook — so `preview-stats.json`
   (the module graph) lands in the build dir:
 

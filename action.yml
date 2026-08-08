@@ -110,6 +110,21 @@ inputs:
     description: "Path to the webpack stats JSON for incremental scoping (default: <dir>/preview-stats.json)."
     required: false
     default: ""
+  global:
+    description: >
+      Comma-separated regexes of extra paths that force a full render (added to the
+      built-in globals: lockfiles, .storybook/, tailwind/postcss config).
+    required: false
+    default: ""
+  global-exclude:
+    description: >
+      Comma-separated regexes of paths to EXEMPT from the global rule, so they're
+      scoped through the module graph instead of forcing a full render. Use for story
+      fixtures/mocks that live under .storybook/ but are only used by specific stories
+      (e.g. '(^|/)\.storybook/mocks/'). A file excused this way that isn't found in the
+      bundle graph still triggers a full render, so it fails safe.
+    required: false
+    default: ""
   # ── Recording metadata (used by 'recording' mode) ──────────────────────────
   test:
     description: "Recording: test title."
@@ -187,6 +202,8 @@ runs:
         SETTLE: ${{ inputs.settle }}
         FULL: ${{ inputs.full }}
         STATS: ${{ inputs.stats }}
+        GLOBAL: ${{ inputs.global }}
+        GLOBAL_EXCLUDE: ${{ inputs.global-exclude }}
         TEST: ${{ inputs.test }}
         FILE: ${{ inputs.file }}
         TEST_ID: ${{ inputs.test-id }}
@@ -281,6 +298,8 @@ runs:
                 [ -n "${SETTLE:-}" ]      && ARGS+=( --settle "$SETTLE" )
                 [ "${FULL:-false}" = "true" ] && ARGS+=( --full )
                 [ -n "${STATS:-}" ]       && ARGS+=( --stats "$STATS" )
+                [ -n "${GLOBAL:-}" ]         && ARGS+=( --global "$GLOBAL" )
+                [ -n "${GLOBAL_EXCLUDE:-}" ] && ARGS+=( --global-exclude "$GLOBAL_EXCLUDE" )
               fi
               ARGS+=( "${COMMON[@]}" )
               run_cli "${ARGS[@]}"

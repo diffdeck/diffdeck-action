@@ -105,6 +105,41 @@ config changed). Set `full: true` for a periodic full render to bound any drift.
 > is the better fit — it uploads every recording with metadata automatically. Use
 > this action's `recording` mode for one-off single-video uploads.
 
+### Monorepos: multiple products per repo
+
+A single repository can hold several independently reviewed DiffDeck **products**. Give each
+one a key with the `product` input; each product gets its own baselines, build numbers,
+capture settings and GitHub check (`DiffDeck / Visual review (<key>)`). The same project token
+covers every product in the repo, and products are created automatically on their first
+upload. Leave `product` empty to use the repo's default product (existing setups are
+unaffected).
+
+```yaml
+jobs:
+  visual:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - product: web-app
+            path: apps/web
+          - product: admin
+            path: apps/admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm ci
+      - run: npm run build-storybook --workspace ${{ matrix.path }}
+      - uses: diffdeck/diffdeck-action@v1
+        with:
+          token: ${{ secrets.DIFFDECK_TOKEN }}
+          product: ${{ matrix.product }}
+          dir: ${{ matrix.path }}/storybook-static
+```
+
+For recordings, a sidecar's `product` field overrides the input per video.
+
 ### Using the URL output
 
 ```yaml
@@ -124,6 +159,7 @@ config changed). Set `full: true` for a periodic full render to bound any drift.
 | `token`            | yes      | —                                      | DiffDeck project token. Use a repository secret (e.g. `${{ secrets.DIFFDECK_TOKEN }}`).         |
 | `dir`              | no       | `storybook-static`                     | Built Storybook static directory (for `screenshot`/`storybook`).                                |
 | `video`            | no       | —                                      | Recorded Playwright video file (for `recording`).                                               |
+| `product`          | no       | —                                      | Monorepo product key (e.g. `web-app`) — see [Monorepos](#monorepos-multiple-products-per-repo). Empty = the repo's default product. |
 | `host`             | no       | _(CLI default — `https://diffdeck.ai`)_| DiffDeck base URL. Set only for self-hosted / non-default deployments.                          |
 | `branch`           | no       | `github.head_ref \|\| github.ref_name` | Branch the upload is for.                                                                        |
 | `commit`           | no       | `github.sha`                           | Commit SHA the upload is for.                                                                    |

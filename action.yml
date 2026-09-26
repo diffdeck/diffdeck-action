@@ -35,6 +35,16 @@ inputs:
       per-test metadata (status/duration/retries) prefer @diffdeckai/playwright-reporter.
     required: false
     default: ""
+  product:
+    description: >
+      Monorepo product key (e.g. 'web-app'). Splits one repository into several
+      independently reviewed DiffDeck products — each gets its own baselines, build
+      numbers, capture settings and GitHub check ('DiffDeck / Visual review (<key>)').
+      Lowercase letters, digits, '.', '_' and '-'. Created automatically on first
+      upload. Empty (default) = the repo's default product (or $DIFFDECK_PRODUCT if
+      set in the job env). A recording sidecar's 'product' field overrides it per video.
+    required: false
+    default: ""
   host:
     description: "DiffDeck base URL. Defaults to the CLI's own default (https://diffdeck.ai)."
     required: false
@@ -189,6 +199,7 @@ runs:
         VIDEO: ${{ inputs.video }}
         VIDEOS: ${{ inputs.videos }}
         HOST: ${{ inputs.host }}
+        PRODUCT: ${{ inputs.product }}
         BRANCH: ${{ inputs.branch }}
         COMMIT: ${{ inputs.commit }}
         MESSAGE: ${{ inputs.message }}
@@ -287,6 +298,7 @@ runs:
               SUBCMD="upload-storybook"
               [ "$MODE" = "screenshot" ] && SUBCMD="screenshot-storybook"
               ARGS=( "$SUBCMD" --dir "$DIR" --branch "$BRANCH" --commit "$COMMIT" )
+              [ -n "${PRODUCT:-}" ] && ARGS+=( --product "$PRODUCT" )
               [ -n "${MESSAGE:-}" ] && ARGS+=( --message "$MESSAGE" )
               [ -n "${DEFAULT_BRANCH:-}" ] && ARGS+=( --default-branch "$DEFAULT_BRANCH" )
               [ -n "${PR_NUMBER:-}" ] && ARGS+=( --pr-number "$PR_NUMBER" )
@@ -360,6 +372,11 @@ runs:
                 M_BRANCH="$(meta_get "$VF" '.branch')" || M_BRANCH=""
                 M_COMMIT="$(meta_get "$VF" '.commit // .commitSha // .sha')" || M_COMMIT=""
                 ARGS+=( --branch "${M_BRANCH:-$BRANCH}" --commit "${M_COMMIT:-$COMMIT}" )
+
+                # Monorepo product key: sidecar wins, else the 'product' input.
+                M_PRODUCT="$(meta_get "$VF" '.product')" || M_PRODUCT=""
+                [ -z "$M_PRODUCT" ] && M_PRODUCT="${PRODUCT:-}"
+                [ -n "$M_PRODUCT" ] && ARGS+=( --product "$M_PRODUCT" )
 
                 # Test title: sidecar → explicit 'test' (single) → derived from path.
                 M_TITLE="$(meta_get "$VF" '.test // .title // .name')" || M_TITLE=""

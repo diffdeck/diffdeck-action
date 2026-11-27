@@ -76,7 +76,7 @@ automatically when two things are present:
 
 Screenshot runs automatically restore and save dependency graphs and browser traces using GitHub Actions cache. This includes `auto` mode when the Storybook directory exists. The archive is scoped to the DiffDeck host, product, build directory and runner platform. Each run attempt gets a fresh key so new traces can be saved across lockfile changes. The CLI uses the trace for its exact baseline build ID.
 
-A cold or evicted trace triggers a full capture. A CLI version with `--trace-cache` support can also use a warm trace to scope dependency upgrades. Set `cache-traces: false` to opt out, or `full: true` to force a fresh capture and warm the cache.
+Screenshot capture continues if the cache service or local trace directory is unavailable. A cold or evicted trace triggers a full capture. A CLI version with `--trace-cache` support can also use a warm trace to scope dependency upgrades. Set `cache-traces: false` to opt out, or `full: true` to force a fresh capture and warm the cache.
 
 ### Upload a Storybook build (server renders)
 

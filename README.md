@@ -48,7 +48,7 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      - run: npm run build-storybook -- --output-dir storybook-static
+      - run: npm run build-storybook -- --output-dir storybook-static --webpack-stats-json=storybook-static
       - uses: diffdeck/diffdeck-action@v1
         with:
           # command: auto  # the default — a Storybook dir present ⇒ screenshot mode
@@ -74,9 +74,9 @@ automatically when two things are present:
         - run: npm run build-storybook -- --output-dir storybook-static --webpack-stats-json
   ```
 
-It fails open to a full render whenever it can't scope safely (no baseline yet,
-no stats file, a shallow clone, or a global file like a lockfile / `.storybook`
-config changed). Set `full: true` for a periodic full render to bound any drift.
+Screenshot runs automatically restore and save dependency graphs and browser traces using GitHub Actions cache. This includes `auto` mode when the Storybook directory exists. The archive is scoped to the DiffDeck host, product, build directory and runner platform. Each run attempt gets a fresh key so new traces can be saved across lockfile changes. The CLI uses the trace for its exact baseline build ID.
+
+A cold or evicted trace triggers a full capture. A CLI version with `--trace-cache` support can also use a warm trace to scope dependency upgrades. Set `cache-traces: false` to opt out, or `full: true` to force a fresh capture and warm the cache.
 
 ### Upload a Storybook build (server renders)
 
@@ -169,6 +169,7 @@ For recordings, a sidecar's `product` field overrides the input per video.
 | `install-browsers` | no       | `true`                                 | In `screenshot` mode, run `playwright install chromium` first.                                   |
 | `install-deps`     | no       | `false`                                | Also install system libs (`--with-deps`). Slow; usually unneeded on GitHub-hosted runners.       |
 | `cache-browsers`   | no       | `true`                                 | Cache `~/.cache/ms-playwright` between runs (screenshot mode).                                    |
+| `cache-traces`     | no       | `true` | Cache screenshot traces between runs. |
 | `concurrency`      | no       | _(CLI default — ~3× CPU, capped 4–16)_ | Parallel render workers.                                                                         |
 | `locale`           | no       | _(CLI default — `en-US`)_              | Browser locale for rendering.                                                                    |
 | `timezone`         | no       | _(CLI default — `UTC`)_                | Browser timezone for rendering.                                                                  |

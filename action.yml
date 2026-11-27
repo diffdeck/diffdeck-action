@@ -89,6 +89,10 @@ inputs:
     description: "Cache the Playwright browser download (~/.cache/ms-playwright) between runs (screenshot mode)."
     required: false
     default: "true"
+  cache-traces:
+    description: "Persist screenshot dependency and browser traces in GitHub Actions cache. Requires a CLI with --trace-cache support."
+    required: false
+    default: "true"
   # ── Screenshot tuning (used by 'screenshot' mode) ──────────────────────────
   concurrency:
     description: "Parallel render workers. Defaults to the CLI's own default (~3× CPU, capped 4–16)."
@@ -188,6 +192,31 @@ runs:
         key: ${{ runner.os }}-ms-playwright-${{ hashFiles('**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock') }}
         restore-keys: |
           ${{ runner.os }}-ms-playwright-
+    - name: Select screenshot trace cache
+      id: traces
+      continue-on-error: true
+      if: ${{ inputs.cache-traces == 'true' && (inputs.command == 'screenshot' || inputs.command == 'auto') }}
+      shell: bash
+      env:
+        DIR: ${{ inputs.dir }}
+        PRODUCT: ${{ inputs.product }}
+        HOST: ${{ inputs.host }}
+      run: |
+        set -euo pipefail
+        [ -d "$DIR" ] || exit 0
+        scope="$(node -e 'const {createHash} = require("node:crypto"); console.log(createHash("sha256").update(JSON.stringify(process.argv.slice(1))).digest("hex"))' -- "${HOST:-${DIFFDECK_HOST:-}}" "${PRODUCT:-${DIFFDECK_PRODUCT:-}}" "$DIR")"
+        echo "scope=$scope" >> "$GITHUB_OUTPUT"
+        echo "dir=$RUNNER_TEMP/diffdeck-traces/$scope" >> "$GITHUB_OUTPUT"
+
+    - name: Cache DiffDeck screenshot traces
+      continue-on-error: true
+      if: ${{ steps.traces.outputs.scope != '' }}
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.traces.outputs.dir }}
+        key: diffdeck-traces-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.traces.outputs.scope }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          diffdeck-traces-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.traces.outputs.scope }}-
     - id: run
       shell: bash
       env:
@@ -205,6 +234,7 @@ runs:
         MESSAGE: ${{ inputs.message }}
         DEFAULT_BRANCH: ${{ inputs.default-branch }}
         PR_NUMBER: ${{ inputs.pr-number }}
+        TRACE_DIR: ${{ steps.traces.outputs.dir }}
         INSTALL_BROWSERS: ${{ inputs.install-browsers }}
         INSTALL_DEPS: ${{ inputs.install-deps }}
         CONCURRENCY: ${{ inputs.concurrency }}
@@ -232,12 +262,6 @@ runs:
         fi
 
         CLI="@diffdeckai/cli@${CLI_VERSION}"
-
-        # Common host flag, applied to every invocation.
-        COMMON=()
-        if [ -n "${HOST:-}" ]; then
-          COMMON+=( --host "$HOST" )
-        fi
 
         # Decide which mode(s) to run.
         MODES=()
@@ -269,6 +293,7 @@ runs:
 
         URL=""
         run_cli() { # $@ = CLI args; tees output, captures the last URL printed
+          if [ -n "${HOST:-}" ]; then set -- "$@" --host "$HOST"; fi
           echo "Running: npx $CLI $*"
           OUT_FILE="$(mktemp)"
           # pipefail (set above) makes the CLI's exit code propagate through the pipe;
@@ -304,6 +329,14 @@ runs:
               [ -n "${PR_NUMBER:-}" ] && ARGS+=( --pr-number "$PR_NUMBER" )
               # Screenshot-only tuning flags (upload-storybook doesn't accept them).
               if [ "$MODE" = "screenshot" ]; then
+                if [ -n "${TRACE_DIR:-}" ]; then
+                  if mkdir -p "$TRACE_DIR" && [ -w "$TRACE_DIR" ]; then
+                    find "$TRACE_DIR" -maxdepth 1 -type f -name '*.json' -mtime +30 -delete || echo "::warning::Could not prune old DiffDeck traces."
+                    ARGS+=( --trace-cache "$TRACE_DIR" )
+                  else
+                    echo "::warning::Trace directory unavailable. Continuing screenshot capture without it."
+                  fi
+                fi
                 [ -n "${CONCURRENCY:-}" ] && ARGS+=( --concurrency "$CONCURRENCY" )
                 [ -n "${LOCALE:-}" ]      && ARGS+=( --locale "$LOCALE" )
                 [ -n "${TIMEZONE:-}" ]    && ARGS+=( --timezone "$TIMEZONE" )
@@ -313,7 +346,6 @@ runs:
                 [ -n "${GLOBAL:-}" ]         && ARGS+=( --global "$GLOBAL" )
                 [ -n "${GLOBAL_EXCLUDE:-}" ] && ARGS+=( --global-exclude "$GLOBAL_EXCLUDE" )
               fi
-              ARGS+=( "${COMMON[@]}" )
               run_cli "${ARGS[@]}"
               ;;
             recording)
@@ -412,8 +444,7 @@ runs:
                 [ -n "$M_DUR" ]     && ARGS+=( --duration "$M_DUR" )
                 [ -n "$M_RETRIES" ] && ARGS+=( --retries "$M_RETRIES" )
                 [ -n "$M_META" ]    && ARGS+=( --metadata "$M_META" )
-                ARGS+=( "${COMMON[@]}" )
-                run_cli "${ARGS[@]}"
+                  run_cli "${ARGS[@]}"
               done
               ;;
           esac
